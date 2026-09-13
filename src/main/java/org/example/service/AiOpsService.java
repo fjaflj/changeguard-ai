@@ -19,10 +19,7 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * AI Ops 智能运维服务
- * 负责多 Agent 协作的告警分析流程
- */
+/** ChangeGuard AI 变更风险分析服务。 */
 @Service
 public class AiOpsService {
 
@@ -40,16 +37,24 @@ public class AiOpsService {
     @Autowired(required = false)  // Mock 模式下才注册
     private QueryLogsTools queryLogsTools;
 
+    /** 保留无请求体调用的兼容入口，使用默认演示变更。 */
+    public Optional<OverAllState> executeAiOpsAnalysis(ChatModel chatModel, ToolCallback[] toolCallbacks) throws GraphRunnerException {
+        return executeAiOpsAnalysis(chatModel, toolCallbacks, null);
+    }
+
     /**
-     * 执行 AI Ops 告警分析流程
+     * 执行变更风险分析流程。
      *
-     * @param chatModel      大模型实例
-     * @param toolCallbacks  工具回调数组
+     * @param chatModel 大模型实例
+     * @param toolCallbacks 工具回调数组
+     * @param userRequest 用户提交的变更描述，可为空
      * @return 分析结果状态
      * @throws GraphRunnerException 如果 Agent 执行失败
      */
-    public Optional<OverAllState> executeAiOpsAnalysis(ChatModel chatModel, ToolCallback[] toolCallbacks) throws GraphRunnerException {
-        logger.info("开始执行 AI Ops 多 Agent 协作流程");
+    public Optional<OverAllState> executeAiOpsAnalysis(ChatModel chatModel,
+                                                        ToolCallback[] toolCallbacks,
+                                                        String userRequest) throws GraphRunnerException {
+        logger.info("开始执行 ChangeGuard AI 变更风险分析流程");
 
         // 构建 Planner 和 Executor Agent
         ReactAgent plannerAgent = buildPlannerAgent(chatModel, toolCallbacks);
@@ -57,17 +62,29 @@ public class AiOpsService {
 
         // 构建 Supervisor Agent
         SupervisorAgent supervisorAgent = SupervisorAgent.builder()
-                .name("ai_ops_supervisor")
-                .description("负责调度 Planner 与 Executor 的多 Agent 控制器")
+                .name("change_risk_supervisor")
+                .description("负责调度 Planner 与 Executor 的变更风险分析控制器")
                 .model(chatModel)
                 .systemPrompt(buildSupervisorSystemPrompt())
                 .subAgents(List.of(plannerAgent, executorAgent))
                 .build();
 
-        String taskPrompt = "你是企业级 SRE，接到了自动化告警排查任务。请结合工具调用，执行**规划→执行→再规划**的闭环，并最终按照固定模板输出《告警分析报告》。禁止编造虚假数据，如连续多次查询失败需诚实反馈无法完成的原因。";
+        String taskPrompt = buildTaskPrompt(userRequest);
 
-        logger.info("调用 Supervisor Agent 开始编排...");
+        logger.info("调用 ChangeGuard Supervisor 开始编排...");
         return supervisorAgent.invoke(taskPrompt);
+    }
+
+    /** 构造稳定、可测试的变更风险分析任务。 */
+    String buildTaskPrompt(String userRequest) {
+        String changeDescription = userRequest == null || userRequest.isBlank()
+                ? "演示变更：请根据当前活动告警和知识库，分析一项待发布服务变更的潜在风险。"
+                : userRequest.trim();
+        return "你是 ChangeGuard AI 的变更风险分析负责人。请分析下面这项发布、配置或依赖变更：\n"
+                + "【变更描述】\n" + changeDescription + "\n\n"
+                + "请结合 Prometheus 告警、日志和内部知识库证据，执行规划→取证→再规划闭环，"
+                + "最终输出变更摘要、影响服务与依赖、证据、风险等级（低/中/高）、发布前验证清单、观察指标、回滚建议和无法确认的信息。"
+                + "所有结论必须基于工具返回内容，禁止编造；不执行任何发布、回滚或配置修改。";
     }
 
     /**
@@ -79,7 +96,7 @@ public class AiOpsService {
     public Optional<String> extractFinalReport(OverAllState state) {
         logger.info("开始提取最终报告...");
 
-        // 提取 Planner 最终输出（包含完整的告警分析报告）
+        // 提取 Planner 最终输出（包含完整的变更风险报告）
         Optional<AssistantMessage> plannerFinalOutput = state.value("planner_plan")
                 .filter(AssistantMessage.class::isInstance)
                 .map(AssistantMessage.class::cast);
@@ -100,7 +117,7 @@ public class AiOpsService {
     private ReactAgent buildPlannerAgent(ChatModel chatModel, ToolCallback[] toolCallbacks) {
         return ReactAgent.builder()
                 .name("planner_agent")
-                .description("负责拆解告警、规划与再规划步骤")
+                .description("负责拆解变更风险、规划取证与再规划步骤")
                 .model(chatModel)
                 .systemPrompt(buildPlannerPrompt())
                 .methodTools(buildMethodToolsArray())
@@ -115,7 +132,7 @@ public class AiOpsService {
     private ReactAgent buildExecutorAgent(ChatModel chatModel, ToolCallback[] toolCallbacks) {
         return ReactAgent.builder()
                 .name("executor_agent")
-                .description("负责执行 Planner 的首个步骤并及时反馈")
+                .description("负责执行 Planner 的首个取证步骤并及时反馈")
                 .model(chatModel)
                 .systemPrompt(buildExecutorPrompt())
                 .methodTools(buildMethodToolsArray())
@@ -143,14 +160,14 @@ public class AiOpsService {
      */
     private String buildPlannerPrompt() {
         return """
-                你是 Planner Agent，同时承担 Replanner 角色，负责：
+                你是 ChangeGuard Planner Agent，同时承担 Replanner 角色，负责：
                 1. 读取当前输入任务 {input} 以及 Executor 的最近反馈 {executor_feedback}。
-                2. 分析 Prometheus 告警、日志、内部文档等信息，制定可执行的下一步步骤。
+                2. 分析变更描述、Prometheus 告警、日志、内部文档等信息，制定可执行的下一步取证步骤。
                 3. 在执行阶段，输出 JSON，包含 decision (PLAN|EXECUTE|FINISH)、step 描述、预期要调用的工具、以及必要的上下文。
                 4. 调用任何腾讯云日志/主题相关工具时，region 参数必须使用连字符格式（如 ap-guangzhou），若不确定请省略以使用默认值。
                 5. 严格禁止编造数据，只能引用工具返回的真实内容；如果连续 3 次调用同一工具仍失败或返回空结果，需停止该方向并在最终报告的结论部分说明"无法完成"的原因。
                 
-                ## 最终报告输出要求（CRITICAL）
+                ## 最终变更风险报告输出要求（CRITICAL）
                 
                 当 decision=FINISH 时，你必须：
                 1. **不要输出 JSON 格式**
@@ -158,77 +175,78 @@ public class AiOpsService {
                 3. **报告必须严格遵循以下模板**：
                 
                 ```
-                # 告警分析报告
+                # 变更风险分析报告
                 
                 ---
                 
-                ## 📋 活跃告警清单
+                ## 📝 变更摘要
+
+                ## 🎯 影响范围
                 
-                | 告警名称 | 级别 | 目标服务 | 首次触发时间 | 最新触发时间 | 状态 |
-                |---------|------|----------|-------------|-------------|------|
-                | [告警1名称] | [级别] | [服务名] | [时间] | [时间] | 活跃 |
-                | [告警2名称] | [级别] | [服务名] | [时间] | [时间] | 活跃 |
+                | 服务/依赖 | 影响判断 | 证据来源 |
+                |---------|----------|----------|
+                | [服务或依赖] | [影响说明] | [监控/日志/文档] |
                 
                 ---
                 
-                ## 🔍 告警根因分析1 - [告警名称]
+                ## 🔍 风险项分析1 - [风险项]
                 
-                ### 告警详情
-                - **告警级别**: [级别]
+                ### 风险详情
+                - **风险等级**: [低/中/高]
                 - **受影响服务**: [服务名]
-                - **持续时间**: [X分钟]
+                - **证据**: [监控、日志或文档证据]
                 
                 ### 症状描述
-                [根据监控指标描述症状]
+                [根据变更内容和观测数据描述风险]
                 
-                ### 日志证据
-                [引用查询到的关键日志]
+                ### 观测证据
+                [引用查询到的关键监控或日志]
                 
-                ### 根因结论
-                [基于证据得出的根本原因]
+                ### 风险结论
+                [基于证据得出的风险判断]
                 
                 ---
                 
-                ## 🛠️ 处理方案执行1 - [告警名称]
+                ## ✅ 发布前验证清单
                 
-                ### 已执行的排查步骤
+                ### 建议验证步骤
                 1. [步骤1]
                 2. [步骤2]
                 
-                ### 处理建议
-                [给出具体的处理建议]
+                ### 观察指标
+                [发布后需要关注的指标、日志和告警]
                 
-                ### 预期效果
-                [说明预期的效果]
-                
-                ---
-                
-                ## 🔍 告警根因分析2 - [告警名称]
-                [如果有第2个告警，重复上述格式]
+                ## ↩️ 回滚建议
+                [仅提出回滚条件和建议，不执行回滚]
                 
                 ---
                 
-                ## 📊 结论
+                ## 🔍 风险项分析2 - [风险项]
+                [如果有第2个风险项，重复上述格式]
+                
+                ---
+                
+                ## 📊 决策结论
                 
                 ### 整体评估
-                [总结所有告警的整体情况]
+                [总结变更是否建议发布，以及需要满足的前置条件]
                 
                 ### 关键发现
                 - [发现1]
                 - [发现2]
                 
-                ### 后续建议
-                1. [建议1]
-                2. [建议2]
+                ### 无法确认的信息
+                1. [待确认信息1]
+                2. [待确认信息2]
                 
                 ### 风险评估
-                [评估当前风险等级和影响范围]
+                [说明证据不足、数据源不可用或需要人工确认的内容]
                 ```
                 
                 **重要提醒**：
                 - 最终输出必须是纯 Markdown 文本，不要包含 JSON 结构
                 - 不要使用 "finalReport": "..." 这样的格式
-                - 直接从 "# 告警分析报告" 开始输出
+                - 直接从 "# 变更风险分析报告" 开始输出
                 - 所有内容必须基于工具查询的真实数据，严禁编造
                 - 如果某个步骤失败，在结论中如实说明，不要跳过
                 
@@ -243,7 +261,7 @@ public class AiOpsService {
                 你是 Executor Agent，负责读取 Planner 最新输出 {planner_plan}，只执行其中的第一步。
                 - 确认步骤所需的工具与参数，尤其是 region 参数要使用连字符格式（ap-guangzhou）；若 Planner 未给出则使用默认区域。
                 - 调用相应的工具并收集结果，如工具返回错误或空数据，需要将失败原因、请求参数一并记录，并停止进一步调用该工具（同一工具失败达到 3 次时应直接返回 FAILED）。
-                - 将日志、指标、文档等证据整理成结构化摘要，标注对应的告警名称或资源，方便 Planner 填充"告警根因分析 / 处理方案执行"章节。
+                - 将日志、指标、文档等证据整理成结构化摘要，标注对应的变更、服务或依赖，方便 Planner 填充风险分析章节。
                 - 以 JSON 形式返回执行状态、证据以及给 Planner 的建议，写入 executor_feedback，严禁编造未实际查询到的内容。
 
 
@@ -262,12 +280,11 @@ public class AiOpsService {
      */
     private String buildSupervisorSystemPrompt() {
         return """
-                你是 AI Ops Supervisor，负责调度 planner_agent 与 executor_agent：
+                你是 ChangeGuard Supervisor，负责调度 planner_agent 与 executor_agent：
                 1. 当需要拆解任务或重新制定策略时，调用 planner_agent。
                 2. 当 planner_agent 输出 decision=EXECUTE 时，调用 executor_agent 执行第一步。
                 3. 根据 executor_agent 的反馈，评估是否需要再次调用 planner_agent，直到 decision=FINISH。
-                4. FINISH 后，确保向最终用户输出完整的《告警分析报告》，格式必须严格为：
-                   告警分析报告\n---\n# 告警处理详情\n## 活跃告警清单\n## 告警根因分析N\n## 处理方案执行N\n## 结论。
+                4. FINISH 后，确保向最终用户输出完整的《变更风险分析报告》，包含变更摘要、影响范围、证据、风险等级、验证清单、观察指标和回滚建议。
                 5. 若步骤涉及腾讯云日志/主题工具，请确保使用连字符区域 ID（ap-guangzhou 等），或省略 region 以采用默认值。
                 6. 如果发现 Planner/Executor 在同一方向连续 3 次调用工具仍失败或没有数据，必须终止流程，直接输出"任务无法完成"的报告，明确告知失败原因，严禁凭空编造结果。
 

@@ -1,5 +1,5 @@
-// OnCall AI Agent 前端应用
-class OnCallAgentApp {
+// ChangeGuard AI 前端应用
+class ChangeGuardApp {
     constructor() {
         this.apiBaseUrl = 'http://localhost:9900/api';
         this.currentMode = 'quick'; // 'quick' 或 'stream'
@@ -8,6 +8,7 @@ class OnCallAgentApp {
         this.currentChatHistory = []; // 当前对话的消息历史
         this.chatHistories = this.loadChatHistories(); // 所有历史对话
         this.isCurrentChatFromHistory = false; // 标记当前对话是否是从历史记录加载的
+        this.changeDescription = '';
         
         this.initializeElements();
         this.bindEvents();
@@ -98,6 +99,10 @@ class OnCallAgentApp {
         this.sidebar = document.querySelector('.sidebar');
         this.newChatBtn = document.getElementById('newChatBtn');
         this.aiOpsSidebarBtn = document.getElementById('aiOpsSidebarBtn');
+        this.changeRiskModal = document.getElementById('changeRiskModal');
+        this.changeDescriptionInput = document.getElementById('changeDescriptionInput');
+        this.cancelChangeRiskBtn = document.getElementById('cancelChangeRiskBtn');
+        this.confirmChangeRiskBtn = document.getElementById('confirmChangeRiskBtn');
         
         // 输入区域元素
         this.messageInput = document.getElementById('messageInput');
@@ -128,9 +133,15 @@ class OnCallAgentApp {
             this.newChatBtn.addEventListener('click', () => this.newChat());
         }
         
-        // AI Ops按钮
+        // 变更风险分析按钮
         if (this.aiOpsSidebarBtn) {
             this.aiOpsSidebarBtn.addEventListener('click', () => this.triggerAIOps());
+        }
+        if (this.cancelChangeRiskBtn) {
+            this.cancelChangeRiskBtn.addEventListener('click', () => this.closeChangeRiskModal());
+        }
+        if (this.confirmChangeRiskBtn) {
+            this.confirmChangeRiskBtn.addEventListener('click', () => this.startChangeRiskAnalysis());
         }
         
         // 模式选择下拉菜单
@@ -540,7 +551,7 @@ class OnCallAgentApp {
         // 更新输入框状态
         if (this.messageInput) {
             this.messageInput.disabled = this.isStreaming;
-            this.messageInput.placeholder = '问问智能OnCall助手';
+            this.messageInput.placeholder = '询问变更、风险或排障知识';
         }
     }
 
@@ -1099,14 +1110,15 @@ class OnCallAgentApp {
         return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
     }
 
-    // 发送智能运维请求（SSE 流式模式）
-    async sendAIOpsRequest(loadingMessageElement) {
+    // 发送变更风险分析请求（SSE 流式模式）
+    async sendAIOpsRequest(loadingMessageElement, changeDescription) {
         try {
             const response = await fetch(`${this.apiBaseUrl}/ai_ops`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                }
+                },
+                body: JSON.stringify({ userRequest: changeDescription })
             });
 
             if (!response.ok) {
@@ -1128,7 +1140,7 @@ class OnCallAgentApp {
                     if (done) {
                         // 流结束，更新最终内容
                         if (fullResponse) {
-                            console.log('AI Ops 流结束，更新最终内容，长度:', fullResponse.length);
+                            console.log('ChangeGuard 流结束，更新最终内容，长度:', fullResponse.length);
                             this.updateAIOpsMessage(loadingMessageElement, fullResponse, []);
                         }
                         break;
@@ -1145,18 +1157,18 @@ class OnCallAgentApp {
                     for (const line of lines) {
                         if (line.trim() === '') continue;
                         
-                        console.log('[AI Ops SSE] 收到行:', line);
+                        console.log('[ChangeGuard SSE] 收到行:', line);
                         
                         // 解析 SSE 格式
                         if (line.startsWith('id:')) {
                             continue;
                         } else if (line.startsWith('event:')) {
                             currentEvent = line.substring(6).trim();
-                            console.log('[AI Ops SSE] 事件类型:', currentEvent);
+                            console.log('[ChangeGuard SSE] 事件类型:', currentEvent);
                             continue;
                         } else if (line.startsWith('data:')) {
                             const rawData = line.substring(5).trim();
-                            console.log('[AI Ops SSE] 数据:', rawData, ', currentEvent:', currentEvent);
+                            console.log('[ChangeGuard SSE] 数据:', rawData, ', currentEvent:', currentEvent);
                             
                             // 解析可能包含多个JSON对象的数据
                             const processJsonMessages = (data) => {
@@ -1164,22 +1176,22 @@ class OnCallAgentApp {
                                 const matches = data.match(jsonPattern);
                                 
                                 if (matches && matches.length > 0) {
-                                    console.log('[AI Ops SSE] 匹配到', matches.length, '个JSON对象');
+                                    console.log('[ChangeGuard SSE] 匹配到', matches.length, '个JSON对象');
                                     for (const jsonStr of matches) {
                                         try {
                                             const sseMessage = JSON.parse(jsonStr);
                                             if (sseMessage.type === 'content') {
                                                 fullResponse += sseMessage.data || '';
                                             } else if (sseMessage.type === 'done') {
-                                                console.log('AI Ops 流完成，最终内容长度:', fullResponse.length);
+                            console.log('ChangeGuard 流完成，最终内容长度:', fullResponse.length);
                                                 this.updateAIOpsMessage(loadingMessageElement, fullResponse, []);
                                                 return true;
                                             } else if (sseMessage.type === 'error') {
-                                                throw new Error(sseMessage.data || '智能运维分析失败');
+                                                throw new Error(sseMessage.data || '变更风险分析失败');
                                             }
                                         } catch (e) {
-                                            if (e.message.includes('智能运维')) throw e;
-                                            console.log('[AI Ops SSE] 单个JSON解析失败:', jsonStr);
+                                            if (e.message.includes('变更风险')) throw e;
+                                            console.log('[ChangeGuard SSE] 单个JSON解析失败:', jsonStr);
                                         }
                                     }
                                     if (loadingMessageElement) {
@@ -1204,11 +1216,11 @@ class OnCallAgentApp {
                                                 this.updateAIOpsStreamContent(loadingMessageElement, fullResponse);
                                             }
                                         } else if (sseMessage.type === 'done') {
-                                            console.log('AI Ops 流完成，最终内容长度:', fullResponse.length);
+                                                console.log('ChangeGuard 流完成，最终内容长度:', fullResponse.length);
                                             this.updateAIOpsMessage(loadingMessageElement, fullResponse, []);
                                             return;
                                         } else if (sseMessage.type === 'error') {
-                                            throw new Error(sseMessage.data || '智能运维分析失败');
+                                            throw new Error(sseMessage.data || '变更风险分析失败');
                                         }
                                     } else {
                                         fullResponse += rawData;
@@ -1217,7 +1229,7 @@ class OnCallAgentApp {
                                         }
                                     }
                                 } catch (e) {
-                                    if (e.message.includes('智能运维')) throw e;
+                                    if (e.message.includes('变更风险')) throw e;
                                     // 非 JSON 格式，直接追加原始数据
                                     fullResponse += rawData;
                                     if (loadingMessageElement) {
@@ -1236,7 +1248,7 @@ class OnCallAgentApp {
         }
     }
 
-    // 更新智能运维流式内容（实时显示）
+    // 更新变更风险流式内容（实时显示）
     updateAIOpsStreamContent(messageElement, content) {
         if (!messageElement) return;
         
@@ -1257,7 +1269,7 @@ class OnCallAgentApp {
         }
     }
 
-    // 更新智能运维消息（带折叠详情）
+    // 更新变更风险消息（带折叠详情）
     updateAIOpsMessage(messageElement, response, details) {
         console.log('updateAIOpsMessage 被调用');
         console.log('messageElement:', messageElement);
@@ -1361,7 +1373,7 @@ class OnCallAgentApp {
         return messageElement;
     }
 
-    // 添加智能运维消息（带折叠详情）- 保留用于兼容性
+    // 添加变更风险消息（带折叠详情）- 保留用于兼容性
     addAIOpsMessage(response, details) {
         const messageDiv = document.createElement('div');
         messageDiv.className = 'message assistant aiops-message';
@@ -1439,12 +1451,37 @@ class OnCallAgentApp {
         return div.innerHTML;
     }
 
-    // 触发智能运维（点击智能运维按钮时直接调用）
+    openChangeRiskModal() {
+        if (!this.changeRiskModal) return;
+        this.changeRiskModal.style.display = 'flex';
+        if (this.changeDescriptionInput) {
+            this.changeDescriptionInput.value = '';
+            this.changeDescriptionInput.focus();
+        }
+    }
+
+    closeChangeRiskModal() {
+        if (this.changeRiskModal) this.changeRiskModal.style.display = 'none';
+    }
+
+    // 打开变更风险分析表单
     async triggerAIOps() {
         if (this.isStreaming) {
             this.showNotification('请等待当前操作完成', 'warning');
             return;
         }
+
+        this.openChangeRiskModal();
+    }
+
+    async startChangeRiskAnalysis() {
+        const changeDescription = this.changeDescriptionInput?.value?.trim();
+        if (!changeDescription) {
+            this.showNotification('请先输入变更描述', 'warning');
+            return;
+        }
+        this.closeChangeRiskModal();
+        this.changeDescription = changeDescription;
 
         // 新建对话
         this.newChat();
@@ -1458,14 +1495,14 @@ class OnCallAgentApp {
         this.updateUI();
 
         try {
-            await this.sendAIOpsRequest(loadingMessage);
+            await this.sendAIOpsRequest(loadingMessage, changeDescription);
         } catch (error) {
-            console.error('智能运维分析失败:', error);
+            console.error('变更风险分析失败:', error);
             // 更新消息为错误信息
             if (loadingMessage) {
                 const messageContent = loadingMessage.querySelector('.message-content');
                 if (messageContent) {
-                    messageContent.textContent = '抱歉，智能运维分析时出现错误：' + error.message;
+                    messageContent.textContent = '抱歉，变更风险分析时出现错误：' + error.message;
                 }
             }
         } finally {
@@ -1480,10 +1517,10 @@ class OnCallAgentApp {
         if (this.loadingOverlay) {
             if (show) {
                 this.loadingOverlay.style.display = 'flex';
-                // 更新文字为智能运维
+                // 更新文字为变更风险分析
                 const loadingText = this.loadingOverlay.querySelector('.loading-text');
                 const loadingSubtext = this.loadingOverlay.querySelector('.loading-subtext');
-                if (loadingText) loadingText.textContent = '智能运维分析中，请稍候...';
+                if (loadingText) loadingText.textContent = '变更风险分析中，请稍候...';
                 if (loadingSubtext) loadingSubtext.textContent = '后端正在处理，请耐心等待';
                 // 防止页面滚动
                 document.body.style.overflow = 'hidden';
@@ -1545,5 +1582,5 @@ document.head.appendChild(style);
 
 // 初始化应用
 document.addEventListener('DOMContentLoaded', () => {
-    new OnCallAgentApp();
+    new ChangeGuardApp();
 });

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OnCall AI Agent · 智能运维助手</title>
+    <title>ChangeGuard AI · 生产变更风险分析</title>
     <link rel="stylesheet" href="styles.css">
     <!-- Markdown 渲染库 -->
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
@@ -16,7 +16,7 @@
         <!-- 左侧边栏 -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h2 class="sidebar-title">OnCall AI Agent</h2>
+                <h2 class="sidebar-title">ChangeGuard AI</h2>
             </div>
             
             <div class="sidebar-content">
@@ -47,11 +47,11 @@
                     <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
-                <span>AI Ops</span>
+                <span>变更风险分析</span>
             </button>
             <div class="chat-container">
                 <div class="welcome-greeting" id="welcomeGreeting">
-                    <p>你好！我是智能Oncall小助手</p>
+                    <p>你好！我是 ChangeGuard AI</p>
                 </div>
                 <div class="chat-messages" id="chatMessages">
                 </div>
@@ -59,7 +59,7 @@
                 <div class="chat-input-container">
                     <div class="input-group-wrapper">
                         <div class="input-wrapper">
-                            <input type="text" id="messageInput" placeholder="问问智能OnCall助手" maxlength="1000" class="message-input">
+                            <input type="text" id="messageInput" placeholder="询问变更、风险或排障知识" maxlength="1000" class="message-input">
                             <div class="input-bottom-bar">
                                 <div class="tools-btn-wrapper">
                                     <button class="tools-btn" id="toolsBtn" title="更多选项">
@@ -122,8 +122,20 @@
     <div id="loadingOverlay" class="loading-overlay">
         <div class="loading-content">
             <div class="loading-spinner"></div>
-            <div class="loading-text">智能运维分析中，请稍候...</div>
+            <div class="loading-text">变更风险分析中，请稍候...</div>
             <div class="loading-subtext">后端正在处理，请耐心等待</div>
+        </div>
+    </div>
+
+    <div id="changeRiskModal" class="change-risk-modal" style="display: none;">
+        <div class="change-risk-dialog">
+            <h3>提交变更描述</h3>
+            <p>输入本次发布、配置或依赖变更，系统将结合监控、日志和知识库分析风险。</p>
+            <textarea id="changeDescriptionInput" maxlength="2000" placeholder="例如：准备将 payment-service 升级到 v1.5.0，并修改数据库连接池配置"></textarea>
+            <div class="change-risk-actions">
+                <button id="cancelChangeRiskBtn" type="button">取消</button>
+                <button id="confirmChangeRiskBtn" type="button">开始分析</button>
+            </div>
         </div>
     </div>
 

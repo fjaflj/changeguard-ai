@@ -2,14 +2,10 @@ package org.example.dto;
 
 import lombok.Data;
 
-/**
- * AIOps 请求 DTO
- */
+/** ChangeGuard AI 变更风险分析请求。 */
 @Data
 public class AIOpsRequest {
-    
-    /**
-     * 用户请求描述
-     */
+
+    /** 发布、配置或依赖变更的自然语言描述。 */
     private String userRequest;
 }

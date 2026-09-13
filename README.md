@@ -1,15 +1,41 @@
-# OnCall AI Agent
+# ChangeGuard AI
 
-OnCall AI Agent 是面向企业运维场景的智能问答与告警诊断平台。它把运维知识库、监控告警、日志工具和大模型 Agent 结合起来，为研发与 SRE 提供可追溯的排障辅助。
+ChangeGuard AI 是一个面向发布与配置变更的风险分析和证据决策平台。用户提交变更描述后，系统会结合内部知识库、Prometheus 监控和 CLS 日志，组织多 Agent 进行取证分析，最终输出影响范围、风险等级、验证清单、观察指标和回滚建议。
 
-## 核心功能
+它解决的问题不是“让模型聊天”，而是把一次变更从自然语言描述转化为一份有证据、有边界的发布决策报告。
 
-- RAG 运维知识库：支持 TXT/Markdown，按标题和段落分片，使用 OpenAI `text-embedding-3-small` 向量化并写入 Milvus。
-- 两阶段检索：Milvus 先召回候选文档，Cross Encoder/Reranker 对候选内容重新打分，最终只将 Top-K 高相关内容交给 Agent。
-- 多轮 Agent 问答：ReactAgent 根据问题自动调用时间、内部文档、Prometheus 告警、CLS 日志和 MCP 工具。
-- AIOps 诊断：Supervisor 调度 Planner 与 Executor，基于监控、日志和知识库证据输出告警分析报告。
-- 流式交互：`/api/chat_stream` 和 `/api/ai_ops` 使用 SSE 返回长耗时结果。
-- 工程安全：上传文件名校验、路径穿越防护、符号链接防护、大小限制，以及文件保存和向量索引状态分离。
+## 核心能力
+
+- 变更风险分析：接收发布、配置和依赖升级描述，生成结构化风险报告。
+- 多 Agent 取证：Supervisor 调度 Planner 和 Executor，按照规划、取证、再规划流程工作。
+- RAG 证据检索：TXT/Markdown 文档经过分片、Embedding、Milvus 召回和可选 Cross Encoder 精排。
+- 可观测性工具：查询 Prometheus 活跃告警、Mock/CLS 日志和内部变更手册。
+- 多轮问答：保留普通问答、工具调用和 SSE 流式响应能力。
+- 工程安全：文件名校验、路径穿越防护、符号链接防护、上传大小限制和索引状态隔离。
+
+## 变更风险分析流程
+
+```text
+变更描述
+    -> ChangeGuard Supervisor
+    -> Planner 制定取证计划
+    -> Executor 调用监控、日志和知识库工具
+    -> Planner 根据证据重新规划
+    -> 输出风险决策报告
+```
+
+报告包含：
+
+- 变更摘要；
+- 影响服务和依赖；
+- 监控、日志和知识库证据；
+- 风险等级：低 / 中 / 高；
+- 发布前验证清单；
+- 发布后观察指标；
+- 回滚条件和建议；
+- 无法确认的信息。
+
+当前系统只提供辅助决策，不解析真实 Git Diff，也不执行发布、回滚、重启、扩容或配置修改。
 
 ## RAG 数据流
 
@@ -17,51 +43,35 @@ OnCall AI Agent 是面向企业运维场景的智能问答与告警诊断平台�
 TXT / Markdown
     -> 标题与段落分片（最大 800 字符，重叠 100 字符）
     -> OpenAI text-embedding-3-small
-    -> Milvus oncall_knowledge_openai（1536 维，IVF_FLAT）
-    -> Milvus 向量召回（启用 Rerank 时默认 Top 12）
+    -> Milvus knowledge collection（1536 维，IVF_FLAT）
+    -> 向量召回（启用 Rerank 时默认召回 12 条）
     -> Cross Encoder 精排
     -> 最终 Top 3
-    -> Agent 基于内容、来源、分数和元数据生成答案
+    -> Agent 基于证据生成风险结论
 ```
 
-Rerank 默认关闭，未配置时保持原有的 Milvus 向量检索行为。开启后，默认通过 SiliconFlow 的兼容接口调用 `BAAI/bge-reranker-v2-m3`；Rerank 服务异常时默认回退到向量召回结果，也可以通过 `RAG_RERANK_FAIL_ON_ERROR=true` 改为直接报错。
-
-首次迁移到 OpenAI Embedding 后，应用会自动创建新集合 `oncall_knowledge_openai`；原有 `biz` 集合不会删除。请重新上传 `aiops-docs` 中的文档完成重建索引。
-
-## AIOps 编排
-
-```text
-Supervisor
-    -> Planner 制定排查计划
-    -> Executor 调用监控、日志、知识库工具
-    -> Planner 根据证据重新规划
-    -> Supervisor 判断是否结束
-    -> 输出告警分析报告
-```
-
-当前主要用于告警分析和诊断，不执行重启、扩容、回滚等高风险变更。默认 Prometheus/CLS 使用 Mock 数据；真实 CLS 查询依赖 MCP 配置。AIOps 报告采用流式分块输出，不表示每个内部 Agent 步骤都会实时展示。
+Rerank 默认关闭。开启后默认调用 SiliconFlow 的 `/v1/rerank` 接口和 `BAAI/bge-reranker-v2-m3`；服务异常时默认回退到 Milvus 结果。
 
 ## 系统架构
 
 ```mermaid
 flowchart LR
-    Browser[Web 页面 / REST 客户端] --> API[Spring Boot API]
+    User[变更描述 / 普通问题] --> API[Spring Boot API]
+    API --> Risk[ChangeGuard 风险分析]
     API --> Chat[ReactAgent 问答]
-    API --> Supervisor[Supervisor Agent]
+    Risk --> Supervisor[Supervisor]
     Supervisor --> Planner[Planner / Replanner]
     Supervisor --> Executor[Executor]
     Chat --> Tools[Agent Tools]
     Planner --> Tools
     Executor --> Tools
-    Tools --> Docs[内部文档检索]
-    Tools --> Prometheus[Prometheus]
-    Tools --> Logs[CLS / MCP 日志]
-    Docs --> Milvus[(Milvus)]
-    Upload[文档上传] --> Chunk[分片与向量化]
-    Chunk --> Milvus
-    Chat --> OpenAI[OpenAI ChatModel]
-    Planner --> OpenAI
-    Executor --> OpenAI
+    Tools --> Prometheus[Prometheus / Mock]
+    Tools --> Logs[CLS / MCP / Mock]
+    Tools --> Knowledge[内部知识库]
+    Knowledge --> Milvus[(Milvus)]
+    Milvus --> Rerank[Cross Encoder Reranker]
+    Risk --> SSE[SSE 报告输出]
+    Chat --> SSE
 ```
 
 ## 技术栈
@@ -69,46 +79,39 @@ flowchart LR
 | 技术 | 用途 |
 | --- | --- |
 | Java 17 / Spring Boot 3.2 | 后端服务与 REST API |
-| Spring AI OpenAI | `gpt-5.6-terra` 对话模型和 `text-embedding-3-small` 向量模型 |
-| Spring AI Alibaba Agent Framework | ReactAgent、Supervisor、Planner、Executor 编排 |
-| Milvus | 向量存储和相似度检索 |
-| Prometheus / CLS / MCP | 告警和日志数据源 |
-| SSE | 问答与诊断报告流式输出 |
+| Spring AI OpenAI | ChatModel、EmbeddingModel |
+| Spring AI Alibaba Agent Framework | ReactAgent、Supervisor、Planner、Executor |
+| Milvus | 向量存储与相似度检索 |
+| Cross Encoder / Reranker | 候选文档二阶段精排 |
+| Prometheus / CLS / MCP | 监控、日志和外部工具数据源 |
+| SSE | 问答和风险报告流式输出 |
 | Docker Compose | 本地 Milvus 依赖编排 |
 
 ## 本地运行
 
-环境要求：JDK 17、Maven 3.9+、Docker Compose、OpenAI API Key。
+环境要求：JDK 17、Maven 3.9+、Docker Desktop、OpenAI API Key。
 
-OpenAI API Key 需要用户自行创建并配置，ChatGPT Plus 或 Codex 的登录状态不能替代 API Key。项目只读取本机环境变量，不会把 Key 写入配置文件。
+ChatGPT Plus 或 Codex 登录状态不能替代 OpenAI API Key。项目只读取本机环境变量，不会把密钥提交到仓库。
 
 ### 1. 启动 Milvus
 
-```bash
+```powershell
 docker compose -f vector-database.yml up -d
 ```
 
-### 2. 配置 OpenAI Key
-
-PowerShell：
+### 2. 配置 OpenAI
 
 ```powershell
 $env:OPENAI_API_KEY = "你的 OpenAI API Key"
 ```
 
-Linux/macOS：
-
-```bash
-export OPENAI_API_KEY="你的 OpenAI API Key"
-```
-
-可选配置 OpenAI 兼容网关：
+如通过代理或兼容网关访问：
 
 ```powershell
 $env:OPENAI_BASE_URL = "https://你的网关地址"
 ```
 
-可选开启 Cross Encoder 精排（需要单独的 Rerank 服务密钥；OpenAI Key 不等同于 Rerank Key）：
+### 3. 可选开启 Rerank
 
 ```powershell
 $env:RAG_RERANK_ENABLED = "true"
@@ -117,85 +120,75 @@ $env:RAG_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
 $env:RAG_RECALL_TOP_K = "12"
 ```
 
-### 3. 启动应用
+OpenAI Key 和 Rerank Key 是两套密钥。
 
-```bash
+### 4. 启动应用
+
+```powershell
 mvn spring-boot:run
 ```
 
-应用地址：<http://localhost:9900>。启动时会校验 `OPENAI_API_KEY`，缺少时直接提示 `OPENAI_API_KEY is required`。
+访问 <http://localhost:9900>。默认 Prometheus 和 CLS 使用 Mock，MCP 关闭，适合本地演示。
 
-默认配置适合本地演示：Prometheus 和 CLS Mock 开启，MCP 关闭。真实环境可设置 `PROMETHEUS_MOCK_ENABLED=false`，并配置 `prometheus.base-url`；启用 MCP 时使用 `SPRING_PROFILES_ACTIVE=mcp` 和 `TENCENT_MCP_SSE_ENDPOINT`。
-
-## 配置项
-
-| 配置 | 默认值 | 说明 |
-| --- | --- | --- |
-| `OPENAI_API_KEY` | 无 | 必填，不提交到仓库 |
-| `OPENAI_BASE_URL` | `https://api.openai.com` | OpenAI 兼容网关，可选 |
-| `OPENAI_CHAT_MODEL` | `gpt-5.6-terra` | 对话、Agent 和 AIOps 模型 |
-| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | RAG 向量模型 |
-| `RAG_RERANK_ENABLED` | `false` | 是否启用 Cross Encoder 精排 |
-| `RAG_RERANK_API_KEY` | 无 | Rerank 服务 API Key，可选 |
-| `RAG_RERANK_URL` | SiliconFlow `/v1/rerank` | Rerank 服务地址 |
-| `RAG_RERANK_MODEL` | `BAAI/bge-reranker-v2-m3` | Rerank 模型 |
-| `RAG_RECALL_TOP_K` | `12` | 启用 Rerank 时的初始召回数量 |
-| `RAG_RERANK_FAIL_ON_ERROR` | `false` | Rerank 失败时是否拒绝回退 |
-| `SERVER_ADDRESS` | `127.0.0.1` | Web 服务监听地址 |
-| `PROMETHEUS_MOCK_ENABLED` | `true` | 是否使用 Mock 告警 |
-| `CLS_MOCK_ENABLED` | `true` | 是否使用 Mock 日志 |
-| `SPRING_PROFILES_ACTIVE` | 无 | 设置为 `mcp` 启用 MCP |
-| `TENCENT_MCP_SSE_ENDPOINT` | 无 | MCP 模式下的 SSE endpoint |
+首次使用时上传 `aiops-docs` 中的 Markdown 文档，等待向量索引完成。
 
 ## API
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/api/chat` | 普通 Agent 问答 |
-| POST | `/api/chat_stream` | SSE 流式 Agent 问答 |
-| POST | `/api/ai_ops` | SSE 告警分析 |
+| POST | `/api/chat_stream` | SSE 流式问答 |
+| POST | `/api/ai_ops` | SSE 变更风险分析 |
 | POST | `/api/upload` | 上传 TXT/Markdown 并建立索引 |
 | POST | `/api/chat/clear` | 清空会话历史 |
 | GET | `/api/chat/session/{sessionId}` | 查询会话信息 |
 | GET | `/milvus/health` | 检查 Milvus 连接 |
 
-普通问答：
+变更风险分析：
 
-```bash
-curl -X POST http://localhost:9900/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"Id":"demo-1","Question":"如何排查 CPU 使用率过高？"}'
+```powershell
+curl.exe -N -X POST http://localhost:9900/api/ai_ops `
+  -H "Content-Type: application/json" `
+  -d '{"userRequest":"将 payment-service 升级到 v1.5.0，并修改数据库连接池配置"}'
 ```
 
 上传知识库文档：
 
-```bash
-curl -X POST http://localhost:9900/api/upload \
+```powershell
+curl.exe -X POST http://localhost:9900/api/upload `
   -F "file=@aiops-docs/cpu_high_usage.md"
 ```
 
-同一 `Id` 可保留多轮上下文；会话当前保存在内存中，服务重启后清空。
+## 配置项
 
-## 常见故障排查
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | 无 | 必填 |
+| `OPENAI_CHAT_MODEL` | `gpt-5.6-terra` | ChatModel 和 Agent 模型 |
+| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | RAG 向量模型 |
+| `RAG_RERANK_ENABLED` | `false` | 是否启用 Cross Encoder |
+| `RAG_RERANK_API_KEY` | 无 | Rerank 服务密钥 |
+| `RAG_RERANK_URL` | SiliconFlow `/v1/rerank` | Rerank 服务地址 |
+| `RAG_RERANK_MODEL` | `BAAI/bge-reranker-v2-m3` | Rerank 模型 |
+| `RAG_RECALL_TOP_K` | `12` | 初始召回数量 |
+| `PROMETHEUS_MOCK_ENABLED` | `true` | 是否使用 Mock 告警 |
+| `CLS_MOCK_ENABLED` | `true` | 是否使用 Mock 日志 |
+| `SPRING_PROFILES_ACTIVE` | 无 | 设置为 `mcp` 启用 MCP |
 
-- `OPENAI_API_KEY is required`：在启动 Spring Boot 的同一终端设置环境变量。
-- 模型不可用：确认账户有目标模型权限，或使用 `OPENAI_CHAT_MODEL` 覆盖模型名。
-- 向量维度不匹配：确认使用 `text-embedding-3-small`，并重新上传全部文档；不要把旧 `biz` 集合数据混用于新集合。
-- Milvus 连接失败：检查 Docker 容器状态、`milvus.host`、`milvus.port` 和 `/milvus/health`。
-- MCP 失败：本地演示保持 MCP 关闭；真实日志查询时检查 `SPRING_PROFILES_ACTIVE` 和 endpoint。
-- 上传返回 503：文件已保存但向量索引失败，请检查 OpenAI Key、模型权限和 Milvus 状态后重新上传。
-- Rerank 未生效：确认 `RAG_RERANK_ENABLED=true`、Rerank Key 已配置，并查看日志中的 `Rerank 完成` 或回退提示。
+## 常见故障
 
-## 验证与文档
+- `OPENAI_API_KEY is required`：在启动 Maven 的同一 PowerShell 中设置 Key。
+- Milvus 连接失败：确认 Docker Desktop、容器状态和 `/milvus/health`。
+- Rerank 未生效：确认 `RAG_RERANK_ENABLED=true` 和 Rerank Key，并查看日志。
+- 上传返回 503：文件可能已保存，但向量索引失败，请检查模型 Key、维度和 Milvus 状态。
+- MCP 失败：本地演示保持 MCP 关闭；真实日志查询时检查 profile 和 endpoint。
 
-```bash
-mvn --batch-mode --no-transfer-progress verify
-```
+## 学习与面试资料
 
+- [项目学习与面试复习全指南](docs/interview/PROJECT_STUDY_GUIDE.md)
 - [简历与面试说明](docs/resume.md)
 - [项目状态](docs/PROGRESS.md)
 - [示例运维文档](aiops-docs/)
-- [Milvus Compose 配置](vector-database.yml)
 
 ## 许可证
 

@@ -2,31 +2,31 @@
 
 ## 项目名称
 
-OnCall AI Agent 智能运维助手
+ChangeGuard AI 生产变更风险分析与证据决策平台
 
 ## 简历描述
 
-- 设计并实现基于 Spring Boot、Spring AI OpenAI 和 Milvus 的智能运维平台，支持运维文档入库、向量检索、多轮问答和 SSE 流式输出。
-- 构建 RAG 知识库链路，实现 TXT/Markdown 文档分片、`text-embedding-3-small` 向量化、Milvus 相似度检索和来源元数据返回。
-- 实现两阶段检索策略，先通过 Milvus 召回候选文档，再接入 Cross Encoder/Reranker 精排，降低低相关内容进入上下文的概率。
-- 设计 ReactAgent 工具调用体系，接入内部文档、Prometheus 告警、CLS 日志和时间查询工具，使模型能够根据问题自动选择排障数据源。
-- 构建 Supervisor / Planner / Executor 多 Agent 告警诊断流程，根据监控与日志证据生成包含告警详情、根因分析、处理建议和风险评估的 Markdown 报告。
-- 完善文件上传安全校验、索引失败状态反馈、Mock 与 MCP 配置隔离，并通过单元测试和 GitHub Actions 建立持续验证流程。
+- 设计并实现基于 Java 17、Spring Boot、Spring AI 和 Milvus 的变更风险分析平台，接收发布、配置和依赖升级描述，结合监控、日志与内部知识库生成发布决策建议。
+- 构建 RAG 证据检索链路，完成 TXT/Markdown 分片、`text-embedding-3-small` 向量化、Milvus 召回和 Cross Encoder 二阶段精排。
+- 将 Prometheus、Mock/CLS 日志和内部文档封装为 Agent 工具，由模型根据变更内容选择取证数据源，并在报告中区分已验证证据与无法确认的信息。
+- 基于 Supervisor / Planner / Executor 实现“变更理解—取证计划—工具执行—再规划—风险报告”流程，输出风险等级、影响范围、验证清单、观察指标和回滚建议。
+- 使用 SSE 返回长耗时分析结果，完善文件上传路径校验、索引失败状态反馈、Mock/MCP 配置隔离和 OpenAI/Milvus 运行配置。
 
 ## 技术关键词
 
-Java 17、Spring Boot、Spring AI OpenAI、`gpt-5.6-terra`、`text-embedding-3-small`、Milvus、RAG、Cross Encoder/Reranker、ReactAgent、Planner-Executor、Prometheus、MCP、SSE、Docker Compose、JUnit 5、GitHub Actions。
+Java 17、Spring Boot、Spring AI OpenAI、`gpt-5.6-terra`、`text-embedding-3-small`、Milvus、RAG、Cross Encoder/Reranker、ReactAgent、Supervisor、Planner-Executor、Prometheus、MCP、SSE、Docker Compose、JUnit 5、GitHub Actions。
 
 ## 面试重点
 
-- 为什么文件上传成功不能直接代表知识库索引成功；
-- 文档分片的最大长度和重叠长度如何影响召回质量；
-- 为什么需要“向量召回 + Cross Encoder 精排”的两阶段检索；
-- 为什么更换 Embedding 模型需要检查向量维度和 Milvus Collection；
-- ReactAgent 工具调用与 Planner / Executor 编排分别解决什么问题；
-- 为什么 Prompt 中的重试约束不能替代程序级循环预算；
-- 当前系统如何区分 Mock 演示模式和真实 Prometheus / MCP 接入模式。
+- 为什么需要把“向量召回”和 Cross Encoder 精排拆成两阶段；
+- 变更描述如何进入 Supervisor / Planner / Executor 的分析上下文；
+- 如何区分监控、日志、知识库证据和模型推断；
+- 为什么风险分析只能给出建议，不能直接执行发布和回滚；
+- OpenAI Embedding 更换后为什么需要新的向量集合和重新索引；
+- Mock、真实 Prometheus 和 MCP 日志之间如何切换；
+- SSE 长连接的超时、取消、异常和代理缓冲问题；
+- 当前系统的会话、鉴权、Git Diff 解析和自动变更执行边界。
 
 ## 当前边界
 
-系统当前面向告警分析与排障辅助，不执行重启、扩容、回滚等高风险变更。会话目前保存在应用内存中，真实 CLS 查询依赖 MCP 配置，AIOps 报告采用完成后的分块输出。
+系统分析用户提交的自然语言变更描述，不解析真实 Git Diff，不连接发布系统，也不执行发布、回滚、重启、扩容或配置修改。会话保存在单 JVM 内存中，默认 Prometheus/CLS 使用 Mock，真实 CLS 查询依赖 MCP 配置。AIOps 报告在编排完成后进行分块 SSE 输出，不代表每个内部 Agent 步骤都实时展示。

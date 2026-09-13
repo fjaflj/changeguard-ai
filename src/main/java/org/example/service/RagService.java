@@ -77,7 +77,7 @@ public class RagService {
     private void generateAnswerStream(String prompt, List<Map<String, String>> history,
                                       StreamCallback callback) {
         List<Message> messages = new ArrayList<>();
-        messages.add(new SystemMessage("你是 OnCall AI Agent 的知识库问答助手，回答必须以检索到的资料为依据。"));
+        messages.add(new SystemMessage("你是 ChangeGuard AI 的知识库助手，回答必须以检索到的资料为依据。"));
         for (Map<String, String> historyMsg : history) {
             String role = historyMsg.get("role");
             String content = historyMsg.get("content");

@@ -9,6 +9,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.example.service.AiOpsService;
 import org.example.service.ChatService;
+import org.example.dto.AIOpsRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.ToolCallback;
@@ -270,26 +271,24 @@ public class ChatController {
         return emitter;
     }
 
-    /**
-     * AI 智能运维接口（SSE 流式模式）- 自动分析告警并生成运维报告
-     * 无需用户输入，自动执行告警分析流程
-     */
+    /** ChangeGuard 变更风险分析接口，兼容无请求体的默认演示调用。 */
     @PostMapping(value = "/ai_ops", produces = "text/event-stream;charset=UTF-8")
-    public SseEmitter aiOps() {
-        SseEmitter emitter = new SseEmitter(600000L); // 10分钟超时（告警分析可能较慢）
+    public SseEmitter aiOps(@RequestBody(required = false) AIOpsRequest request) {
+        SseEmitter emitter = new SseEmitter(600000L);
+        String userRequest = request == null ? null : request.getUserRequest();
 
         executor.execute(() -> {
             try {
-                logger.info("收到 AI 智能运维请求 - 启动多 Agent 协作流程");
+                logger.info("收到 ChangeGuard 变更风险分析请求 - 启动多 Agent 协作流程");
 
                 ChatModel chatModel = chatService.getChatModel();
 
                 ToolCallback[] toolCallbacks = chatService.getToolCallbacks();
 
-                emitter.send(SseEmitter.event().name("message").data(SseMessage.content("正在读取告警并拆解任务...\n")));
+                emitter.send(SseEmitter.event().name("message").data(SseMessage.content("正在读取变更描述、告警并拆解风险...\n")));
                 
                 // 调用 AiOpsService 执行分析流程
-                Optional<OverAllState> overAllStateOptional = aiOpsService.executeAiOpsAnalysis(chatModel, toolCallbacks);
+                Optional<OverAllState> overAllStateOptional = aiOpsService.executeAiOpsAnalysis(chatModel, toolCallbacks, userRequest);
 
                 if (overAllStateOptional.isEmpty()) {
                     emitter.send(SseEmitter.event().name("message")
@@ -299,7 +298,7 @@ public class ChatController {
                 }
 
                 OverAllState state = overAllStateOptional.get();
-                logger.info("AI Ops 编排完成，开始提取最终报告...");
+                logger.info("ChangeGuard 编排完成，开始提取最终风险报告...");
 
                 // 提取最终报告
                 Optional<String> finalReportOptional = aiOpsService.extractFinalReport(state);
@@ -313,9 +312,9 @@ public class ChatController {
                     emitter.send(SseEmitter.event().name("message")
                             .data(SseMessage.content("\n\n" + "=".repeat(60) + "\n"), MediaType.APPLICATION_JSON));
                     
-                    // 发送完整的告警分析报告
+                    // 发送完整的变更风险报告
                     emitter.send(SseEmitter.event().name("message")
-                            .data(SseMessage.content("📋 **告警分析报告**\n\n"), MediaType.APPLICATION_JSON));
+                            .data(SseMessage.content("📋 **变更风险分析报告**\n\n"), MediaType.APPLICATION_JSON));
                     
                     int chunkSize = 50;
                     for (int i = 0; i < finalReportText.length(); i += chunkSize) {
@@ -339,13 +338,13 @@ public class ChatController {
 
                 emitter.send(SseEmitter.event().name("message").data(SseMessage.done(), MediaType.APPLICATION_JSON));
                 emitter.complete();
-                logger.info("AI Ops 多 Agent 编排完成");
+                logger.info("ChangeGuard 多 Agent 编排完成");
 
             } catch (Exception e) {
-                logger.error("AI Ops 多 Agent 协作失败", e);
+                logger.error("ChangeGuard 多 Agent 协作失败", e);
                 try {
                     emitter.send(SseEmitter.event().name("message")
-                            .data(SseMessage.error("AI Ops 流程失败: " + e.getMessage()), MediaType.APPLICATION_JSON));
+                            .data(SseMessage.error("变更风险分析流程失败: " + e.getMessage()), MediaType.APPLICATION_JSON));
                 } catch (IOException ex) {
                     logger.error("发送错误消息失败", ex);
                 }

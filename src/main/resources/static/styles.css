@@ -210,7 +210,7 @@ body {
     position: relative;
 }
 
-/* AI Ops按钮 - 右上角 */
+/* 变更风险分析按钮 - 右上角 */
 .ai-ops-top-btn {
     position: absolute;
     top: 16px;
@@ -981,9 +981,66 @@ body {
     to { transform: rotate(360deg); }
 }
 
-/* 智能运维消息样式 */
+/* 变更风险分析消息样式 */
 .aiops-message {
     max-width: 90%;
+}
+
+.change-risk-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.58);
+}
+
+.change-risk-dialog {
+    width: min(560px, calc(100vw - 32px));
+    padding: 24px;
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: 0 20px 60px rgba(15, 23, 42, 0.24);
+}
+
+.change-risk-dialog h3 {
+    margin: 0 0 8px;
+}
+
+.change-risk-dialog p {
+    margin: 0 0 16px;
+    color: #64748b;
+    line-height: 1.6;
+}
+
+.change-risk-dialog textarea {
+    width: 100%;
+    min-height: 140px;
+    padding: 12px;
+    resize: vertical;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    box-sizing: border-box;
+    font: inherit;
+}
+
+.change-risk-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.change-risk-actions button {
+    padding: 9px 16px;
+    border: 0;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.change-risk-actions button:last-child {
+    color: #ffffff;
+    background: #2563eb;
 }
 
 .aiops-message .message-content {

@@ -144,7 +144,7 @@ public class MilvusClientFactory {
         // 创建 collection
         CreateCollectionParam createParam = CreateCollectionParam.newBuilder()
                 .withCollectionName(MilvusConstants.MILVUS_COLLECTION_NAME)
-                .withDescription("OnCall AI Agent knowledge collection")
+                .withDescription("ChangeGuard AI knowledge collection")
                 .withSchema(schema)
                 .withShardsNum(MilvusConstants.DEFAULT_SHARD_NUMBER)
                 .build();
